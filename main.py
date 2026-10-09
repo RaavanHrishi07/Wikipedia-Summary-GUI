@@ -6,15 +6,18 @@ from mediawiki import MediaWiki
 class WikipediaSummaryApp:
     """GUI application for searching Wikipedia summaries."""
 
+    MAX_HISTORY = 10
+
     def __init__(self, root):
         self.root = root
         self.root.title("Wikipedia Summary")
-        self.root.geometry("800x650")
-        self.root.minsize(650, 500)
+        self.root.geometry("850x700")
+        self.root.minsize(700, 550)
         self.root.configure(bg="#202124")
 
         self.wikipedia = MediaWiki()
         self.suggestion_job = None
+        self.search_history = []
 
         self._configure_style()
         self._build_interface()
@@ -31,7 +34,7 @@ class WikipediaSummaryApp:
 
     def _build_interface(self):
         header = tk.Frame(self.root, bg="#202124")
-        header.pack(fill="x", padx=30, pady=(25, 10))
+        header.pack(fill="x", padx=30, pady=(20, 10))
 
         tk.Label(
             header,
@@ -50,7 +53,7 @@ class WikipediaSummaryApp:
         ).pack(pady=(5, 0))
 
         search_frame = tk.Frame(self.root, bg="#202124")
-        search_frame.pack(fill="x", padx=30, pady=20)
+        search_frame.pack(fill="x", padx=30, pady=15)
 
         self.topic_var = tk.StringVar()
 
@@ -83,19 +86,62 @@ class WikipediaSummaryApp:
             self.root,
             font=("Arial", 11),
             height=5,
-            bg="#ffffff",
+            bg="white",
             fg="#202124",
             selectbackground="#3b78e7",
             selectforeground="white",
             activestyle="none",
         )
 
+        history_frame = tk.Frame(self.root, bg="#202124")
+        history_frame.pack(fill="x", padx=30, pady=(0, 12))
+
+        history_header = tk.Frame(history_frame, bg="#202124")
+        history_header.pack(fill="x")
+
+        tk.Label(
+            history_header,
+            text="Recent Searches",
+            font=("Arial", 11, "bold"),
+            bg="#202124",
+            fg="white",
+        ).pack(side="left")
+
+        self.clear_history_button = ttk.Button(
+            history_header,
+            text="Clear History",
+            command=self.clear_history,
+        )
+        self.clear_history_button.pack(side="right")
+
+        self.history_box = tk.Listbox(
+            history_frame,
+            height=3,
+            font=("Arial", 10),
+            bg="#303134",
+            fg="white",
+            selectbackground="#3b78e7",
+            selectforeground="white",
+            activestyle="none",
+            relief="flat",
+        )
+        self.history_box.pack(fill="x", pady=(6, 0))
+
+        tk.Label(
+            history_frame,
+            text="Double-click a topic to search it again.",
+            font=("Arial", 9),
+            bg="#202124",
+            fg="#b8b8b8",
+            anchor="w",
+        ).pack(fill="x", pady=(4, 0))
+
         content_frame = tk.Frame(self.root, bg="#202124")
         content_frame.pack(
             fill="both",
             expand=True,
             padx=30,
-            pady=(0, 15),
+            pady=(0, 12),
         )
 
         self.summary_text = tk.Text(
@@ -127,22 +173,37 @@ class WikipediaSummaryApp:
             fg="#b8b8b8",
             anchor="w",
         )
-        self.status_label.pack(fill="x", padx=30, pady=(0, 15))
+        self.status_label.pack(fill="x", padx=30, pady=(0, 12))
 
     def _bind_events(self):
         self.topic_entry.bind("<KeyRelease>", self._schedule_suggestions)
         self.topic_entry.bind("<Return>", self._handle_enter)
-        self.suggestion_box.bind("<Double-Button-1>", self._select_suggestion)
-        self.suggestion_box.bind("<Return>", self._select_suggestion)
         self.topic_entry.bind("<Down>", self._focus_suggestions)
+
+        self.suggestion_box.bind(
+            "<Double-Button-1>",
+            self._select_suggestion,
+        )
+        self.suggestion_box.bind(
+            "<Return>",
+            self._select_suggestion,
+        )
+
+        self.history_box.bind(
+            "<Double-Button-1>",
+            self._select_history,
+        )
         self.root.bind("<Escape>", self._hide_suggestions)
 
     def _schedule_suggestions(self, event=None):
-        if event and event.keysym in ("Up", "Down", "Return", "Escape"):
+        if event and event.keysym in (
+            "Up", "Down", "Return", "Escape"
+        ):
             return
 
         if self.suggestion_job is not None:
             self.root.after_cancel(self.suggestion_job)
+            self.suggestion_job = None
 
         self.suggestion_job = self.root.after(
             350,
@@ -181,7 +242,7 @@ class WikipediaSummaryApp:
                 fill="x",
                 padx=30,
                 pady=(0, 10),
-                before=self.summary_text.master,
+                before=self.root.winfo_children()[3],
             )
 
     def _hide_suggestions(self, event=None):
@@ -219,6 +280,43 @@ class WikipediaSummaryApp:
         self.get_summary()
         return "break"
 
+    def _add_to_history(self, topic):
+        self.search_history = [
+            item for item in self.search_history
+            if item.casefold() != topic.casefold()
+        ]
+
+        self.search_history.insert(0, topic)
+        self.search_history = self.search_history[:self.MAX_HISTORY]
+
+        self._refresh_history()
+
+    def _refresh_history(self):
+        self.history_box.delete(0, tk.END)
+
+        for topic in self.search_history:
+            self.history_box.insert(tk.END, topic)
+
+    def _select_history(self, event=None):
+        selection = self.history_box.curselection()
+
+        if not selection:
+            return
+
+        topic = self.history_box.get(selection[0])
+        self.topic_var.set(topic)
+        self._hide_suggestions()
+        self.get_summary()
+
+    def clear_history(self):
+        if not self.search_history:
+            self.status_label.config(text="Search history is already empty.")
+            return
+
+        self.search_history.clear()
+        self._refresh_history()
+        self.status_label.config(text="Search history cleared.")
+
     def _set_summary(self, text):
         self.summary_text.configure(state="normal")
         self.summary_text.delete("1.0", tk.END)
@@ -249,6 +347,7 @@ class WikipediaSummaryApp:
                 raise ValueError("No summary was available.")
 
             self._set_summary(summary)
+            self._add_to_history(page.title)
             self.status_label.config(
                 text=f"Showing summary for '{page.title}'."
             )
