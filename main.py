@@ -1,6 +1,12 @@
+import json
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
+
 from mediawiki import MediaWiki
+
+
+HISTORY_FILE = Path(__file__).resolve().parent / "search_history.json"
 
 
 class WikipediaSummaryApp:
@@ -17,10 +23,11 @@ class WikipediaSummaryApp:
 
         self.wikipedia = MediaWiki()
         self.suggestion_job = None
-        self.search_history = []
+        self.search_history = self._load_history()
 
         self._configure_style()
         self._build_interface()
+        self._refresh_history()
         self._bind_events()
 
     def _configure_style(self):
@@ -195,6 +202,56 @@ class WikipediaSummaryApp:
         )
         self.root.bind("<Escape>", self._hide_suggestions)
 
+    def _load_history(self):
+        """Load saved search history safely."""
+        try:
+            if not HISTORY_FILE.exists():
+                return []
+
+            with HISTORY_FILE.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+
+            if not isinstance(data, list):
+                return []
+
+            history = []
+            seen = set()
+
+            for item in data:
+                if not isinstance(item, str) or not item.strip():
+                    continue
+
+                topic = item.strip()
+                key = topic.casefold()
+
+                if key not in seen:
+                    history.append(topic)
+                    seen.add(key)
+
+                if len(history) >= self.MAX_HISTORY:
+                    break
+
+            return history
+
+        except (OSError, json.JSONDecodeError):
+            return []
+
+    def _save_history(self):
+        """Persist the current search history to JSON."""
+        try:
+            with HISTORY_FILE.open("w", encoding="utf-8") as file:
+                json.dump(
+                    self.search_history,
+                    file,
+                    indent=4,
+                    ensure_ascii=False,
+                )
+        except OSError as error:
+            messagebox.showwarning(
+                "History Save Error",
+                f"Could not save search history:\n{error}",
+            )
+
     def _schedule_suggestions(self, event=None):
         if event and event.keysym in (
             "Up", "Down", "Return", "Escape"
@@ -282,7 +339,8 @@ class WikipediaSummaryApp:
 
     def _add_to_history(self, topic):
         self.search_history = [
-            item for item in self.search_history
+            item
+            for item in self.search_history
             if item.casefold() != topic.casefold()
         ]
 
@@ -290,6 +348,7 @@ class WikipediaSummaryApp:
         self.search_history = self.search_history[:self.MAX_HISTORY]
 
         self._refresh_history()
+        self._save_history()
 
     def _refresh_history(self):
         self.history_box.delete(0, tk.END)
@@ -315,6 +374,7 @@ class WikipediaSummaryApp:
 
         self.search_history.clear()
         self._refresh_history()
+        self._save_history()
         self.status_label.config(text="Search history cleared.")
 
     def _set_summary(self, text):
